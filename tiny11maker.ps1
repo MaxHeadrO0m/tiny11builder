@@ -45,10 +45,10 @@ if (! $myWindowsPrincipal.IsInRole($adminRole))
 
 
 # Start the transcript and prepare the window
-Start-Transcript -Path "$ScratchDisk\tiny11.log" 
+Start-Transcript -Path "$PSScriptRoot\tiny11.log" 
 
 $Host.UI.RawUI.WindowTitle = "Tiny11 image creator"
-Clear-Host
+#Clear-Host
 Write-Host "Welcome to the tiny11 image creator! Release: 05-06-24"
 
 $hostArchitecture = $Env:PROCESSOR_ARCHITECTURE
@@ -84,7 +84,7 @@ Set-ItemProperty -Path "$ScratchDisk\tiny11\sources\install.esd" -Name IsReadOnl
 Remove-Item "$ScratchDisk\tiny11\sources\install.esd" > $null 2>&1
 Write-Host "Copy complete!"
 Start-Sleep -Seconds 2
-Clear-Host
+#Clear-Host
 Write-Host "Getting image information:"
 Get-WindowsImage -ImagePath $ScratchDisk\tiny11\sources\install.wim
 $index = Read-Host "Please enter the image index"
@@ -147,6 +147,38 @@ foreach ($package in $packagesToRemove) {
     & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Remove-ProvisionedAppxPackage' "/PackageName:$package"
 }
 
+Write-Host "Removing of system apps complete! Now proceeding to removal of system packages..."
+Start-Sleep -Seconds 1
+
+$packagePatterns = @(
+    "Microsoft-Windows-InternetExplorer-Optional-Package~31bf3856ad364e35",
+    "Microsoft-Windows-LanguageFeatures-Handwriting-$($languageCode)-Package~31bf3856ad364e35",
+    "Microsoft-Windows-LanguageFeatures-OCR-$($languageCode)-Package~31bf3856ad364e35",
+    "Microsoft-Windows-LanguageFeatures-Speech-$($languageCode)-Package~31bf3856ad364e35",
+    "Microsoft-Windows-LanguageFeatures-TextToSpeech-$($languageCode)-Package~31bf3856ad364e35",
+    "Microsoft-Windows-MediaPlayer-Package~31bf3856ad364e35",
+    "Microsoft-Windows-Wallpaper-Content-Extended-FoD-Package~31bf3856ad364e35",
+    "Microsoft-Windows-WordPad-FoD-Package~",
+    "Microsoft-Windows-TabletPCMath-Package~",
+    "Microsoft-Windows-StepsRecorder-Package~"
+)
+
+# Get all packages
+$allPackages = & 'DISM' /English /Image:"$($ScratchDisk)\scratchdir" /Get-Packages /Format:Table
+$allPackages = $allPackages -split "`n" | Select-Object -Skip 1
+
+foreach ($packagePattern in $packagePatterns) {
+    # Filter the packages to remove
+    $packagesToRemove = $allPackages | Where-Object { $_ -like "$packagePattern*" }
+
+    foreach ($package in $packagesToRemove) {
+        # Extract the package identity
+        $packageIdentity = ($package -split "\s+")[0]
+
+        Write-Host "Removing package: $packageIdentity"
+        & 'DISM' /English /Image:"$($ScratchDisk)\scratchdir" /Remove-Package /PackageName:$packageIdentity 
+    }
+}
 
 Write-Host "Removing Edge:"
 Remove-Item -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\Edge" -Recurse -Force | Out-Null
@@ -184,7 +216,7 @@ Write-Host "Removing OneDrive:"
 Remove-Item -Path "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" -Force | Out-Null
 Write-Host "Removal complete!"
 Start-Sleep -Seconds 2
-Clear-Host
+#Clear-Host
 Write-Host "Loading registry..."
 reg load HKLM\zCOMPONENTS $ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS | Out-Null
 reg load HKLM\zDEFAULT $ScratchDisk\scratchdir\Windows\System32\config\default | Out-Null
@@ -234,7 +266,7 @@ Write-Host "Disabling Sponsored Apps:"
 & 'reg' 'add' 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent' '/v' 'DisableCloudOptimizedContent' '/t' 'REG_DWORD' '/d' '1' '/f' | Out-Null
 Write-Host "Enabling Local Accounts on OOBE:"
 & 'reg' 'add' 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\OOBE' '/v' 'BypassNRO' '/t' 'REG_DWORD' '/d' '1' '/f' | Out-Null
-Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\scratchdir\Windows\System32\Sysprep\autounattend.xml" -Force | Out-Null
+#Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\scratchdir\Windows\System32\Sysprep\autounattend.xml" -Force | Out-Null
 Write-Host "Disabling Reserved Storage:"
 & 'reg' 'add' 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\ReserveManager' '/v' 'ShippedWithReserves' '/t' 'REG_DWORD' '/d' '0' '/f' | Out-Null
 Write-Host "Disabling BitLocker Device Encryption"
@@ -264,7 +296,10 @@ Write-Host "Prevents installation or DevHome and Outlook:"
 & 'reg' 'add' 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\UScheduler\DevHomeUpdate' '/v' 'workCompleted' '/t' 'REG_DWORD' '/d' '1' '/f' | Out-Null
 & 'reg' 'delete' 'HKLM\zSOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' '/f' | Out-Null
 & 'reg' 'delete' 'HKLM\zSOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\DevHomeUpdate' '/f' | Out-Null
-
+Write-Host "Disabling bing in Start Menu:"
+& 'reg' 'add' 'HKLM\zNTUSER\Software\Policies\Microsoft\Windows\Explorer' | Out-Null
+& 'reg' 'add' 'HKLM\zNTUSER\Software\Policies\Microsoft\Windows\Explorer' '/v' 'ShowRunAsDifferentUserInStart' '/t' 'REG_DWORD' '/d' '1' '/f' | Out-Null
+& 'reg' 'add' 'HKLM\zNTUSER\Software\Policies\Microsoft\Windows\Explorer' '/v' 'DisableSearchBoxSuggestions' '/t' 'REG_DWORD' '/d' '1' '/f' | Out-Null
 ## this function allows PowerShell to take ownership of the Scheduled Tasks registry key from TrustedInstaller. Based on Jose Espitia's script.
 function Enable-Privilege {
  param(
@@ -382,10 +417,12 @@ reg unload HKLM\zSCHEMA | Out-Null
 reg unload HKLM\zSOFTWARE
 reg unload HKLM\zSYSTEM | Out-Null
 Write-Host "Cleaning up image..."
+& 'dism' '/English' "/image:$ScratchDisk\scratchdir" '/Cleanup-Image' '/StartComponentCleanup' '/ResetBase'
 Repair-WindowsImage -Path $ScratchDisk\scratchdir -StartComponentCleanup -ResetBase
 Write-Host "Cleanup complete."
 Write-Host ' '
 Write-Host "Unmounting image..."
+& 'dism' '/English' '/unmount-image' "/mountdir:$ScratchDisk\scratchdir" '/commit'
 Dismount-WindowsImage -Path $ScratchDisk\scratchdir -Save
 Write-Host "Exporting image..."
 # Compressiontype Recovery is not supported with PShell https://learn.microsoft.com/en-us/powershell/module/dism/export-windowsimage?view=windowsserver2022-ps#-compressiontype
@@ -394,7 +431,7 @@ Remove-Item -Path "$ScratchDisk\tiny11\sources\install.wim" -Force | Out-Null
 Rename-Item -Path "$ScratchDisk\tiny11\sources\install2.wim" -NewName "install.wim" | Out-Null
 Write-Host "Windows image completed. Continuing with boot.wim."
 Start-Sleep -Seconds 2
-Clear-Host
+#Clear-Host
 Write-Host "Mounting boot image:"
 $wimFilePath = "$ScratchDisk\tiny11\sources\boot.wim" 
 & takeown "/F" $wimFilePath | Out-Null
@@ -430,11 +467,14 @@ $regKey.Close()
 reg unload HKLM\zSOFTWARE
 reg unload HKLM\zSYSTEM | Out-Null
 Write-Host "Unmounting image..."
+& 'dism' '/English' '/unmount-image' "/mountdir:$ScratchDisk\scratchdir" '/commit'
 Dismount-WindowsImage -Path $ScratchDisk\scratchdir -Save
-Clear-Host
+#Clear-Host
+& 'dism' '/English' '/Export-Image' "/SourceImageFile:$ScratchDisk\tiny11\sources\install.wim" "/SourceIndex:$index" "/DestinationImageFile:$ScratchDisk\tiny11\sources\install.esd" '/Compress:recovery'
+Remove-Item "$mainOSDrive\tiny11\sources\install.wim" > $null 2>&1
 Write-Host "The tiny11 image is now completed. Proceeding with the making of the ISO..."
 Write-Host "Copying unattended file for bypassing MS account on OOBE..."
-Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\tiny11\autounattend.xml" -Force | Out-Null
+#Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\tiny11\autounattend.xml" -Force | Out-Null
 Write-Host "Creating ISO image..."
 $ADKDepTools = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\$hostarchitecture\Oscdimg"
 $localOSCDIMGPath = "$PSScriptRoot\oscdimg.exe"
